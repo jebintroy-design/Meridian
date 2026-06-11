@@ -1,0 +1,18 @@
+# secrets — never commit environment files or keys
+.env*
+*.key
+*.pem
+
+# dependencies / tooling
+node_modules/
+.claude/
+*.log
+
+# working notes
+CLAUDE_CODE_PROMPT*.md
+
+# scratch files from local checks
+_check.js
+_chain.json
+_code.json
+_sdk.js

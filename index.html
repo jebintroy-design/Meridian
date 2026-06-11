@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MERIDIAN — flip less. match more.</title>
+<style>
+  :root {
+    --bg: #0d0f12;
+    --panel: #15181d;
+    --tile-face: #1c2027;
+    --tile-edge: #060708;
+    --ink: #e8e4d8;
+    --amber: #ffb347;
+    --green: #5dd39e;
+    --red: #e06c6c;
+    --dim: #6b7280;
+    --seam: rgba(0,0,0,.55);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Courier New", ui-monospace, monospace;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 64px;
+  }
+
+  header { text-align: center; margin-bottom: 18px; }
+  h1 {
+    font-size: clamp(28px, 6vw, 44px);
+    letter-spacing: .45em;
+    text-indent: .45em;
+    font-weight: 700;
+  }
+  h1 span {
+    display: inline-block;
+    background: var(--tile-face);
+    border-radius: 4px;
+    padding: 2px 6px;
+    margin: 2px 1px;
+    box-shadow: inset 0 -1px 0 rgba(255,255,255,.06), 0 2px 4px rgba(0,0,0,.5);
+    position: relative;
+  }
+  h1 span::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 1px;
+    background: var(--seam);
+  }
+  .tagline { color: var(--dim); font-size: 13px; letter-spacing: .25em; margin-top: 8px; text-transform: uppercase; }
+
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 14px;
+  }
+  button {
+    font-family: inherit;
+    font-size: 13px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid #2a2f37;
+    border-radius: 4px;
+    padding: 9px 16px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--amber); color: var(--amber); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  button.size-btn.active { border-color: var(--amber); color: var(--amber); background: #221d12; }
+  button.connected { border-color: var(--green); color: var(--green); }
+
+  .stats {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-bottom: 18px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid #2a2f37;
+    border-radius: 4px;
+    padding: 8px 16px;
+    min-width: 110px;
+    text-align: center;
+  }
+  .stat .label { font-size: 10px; letter-spacing: .25em; color: var(--dim); text-transform: uppercase; }
+  .stat .value { font-size: 20px; margin-top: 3px; color: var(--ink); font-variant-numeric: tabular-nums; }
+  .stat .sub { font-size: 10px; color: var(--dim); margin-top: 2px; }
+
+  #boardStatus {
+    font-size: 12px;
+    letter-spacing: .08em;
+    color: var(--dim);
+    min-height: 16px;
+    text-align: center;
+  }
+  #boardStatus.ok { color: var(--green); }
+  #boardStatus.err { color: var(--red); }
+  #boardStatus.busy { color: var(--amber); }
+
+  #board {
+    display: grid;
+    grid-template-columns: repeat(var(--n), 1fr);
+    gap: 8px;
+    width: min(92vw, 560px);
+    perspective: 900px;
+  }
+  #board.locked .tile { cursor: not-allowed; }
+  .tile {
+    aspect-ratio: 1;
+    cursor: pointer;
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform .38s cubic-bezier(.4, 1.4, .6, 1);
+  }
+  .tile.revealed, .tile.matched { transform: rotateX(180deg); }
+  .tile.matched { cursor: default; }
+  .face {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    border-radius: 5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: clamp(18px, calc(36vw / var(--n)), 42px);
+    font-weight: 700;
+    background: var(--tile-face);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.07),
+                inset 0 -2px 0 var(--tile-edge),
+                0 3px 6px rgba(0,0,0,.45);
+  }
+  .face::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; top: 50%;
+    height: 2px;
+    background: var(--seam);
+  }
+  .face.front { color: #3a414c; }
+  .face.back { transform: rotateX(180deg); color: var(--amber); }
+  .tile.matched .face.back { color: var(--green); }
+
+  #winPanel {
+    display: none;
+    margin-top: 22px;
+    background: var(--panel);
+    border: 1px solid #2a2f37;
+    border-radius: 6px;
+    padding: 20px 26px;
+    text-align: center;
+    max-width: 480px;
+  }
+  #winPanel.show { display: block; }
+  #winPanel h2 { font-size: 16px; letter-spacing: .3em; text-transform: uppercase; color: var(--green); margin-bottom: 10px; }
+  #winSummary { font-size: 14px; margin-bottom: 14px; color: var(--ink); }
+  #status { margin-top: 12px; font-size: 12px; color: var(--dim); word-break: break-all; min-height: 16px; }
+  #status a { color: var(--amber); }
+  #status.err { color: var(--red); }
+  #status.ok { color: var(--green); }
+
+  footer { margin-top: 28px; font-size: 11px; color: var(--dim); letter-spacing: .1em; text-align: center; }
+  footer a { color: var(--dim); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span>M</span><span>E</span><span>R</span><span>I</span><span>D</span><span>I</span><span>A</span><span>N</span></h1>
+  <div class="tagline">flip less &middot; match more &middot; base mainnet</div>
+</header>
+
+<div class="bar">
+  <button class="size-btn" data-size="2">2&times;2</button>
+  <button class="size-btn active" data-size="4">4&times;4</button>
+  <button class="size-btn" data-size="6">6&times;6</button>
+  <button id="newGameBtn">New Board</button>
+  <button id="baseWalletBtn">Base Wallet</button>
+  <button id="injectedBtn">Browser Wallet</button>
+</div>
+
+<div class="stats">
+  <div class="stat"><div class="label">Moves</div><div class="value" id="movesVal">0</div></div>
+  <div class="stat"><div class="label">Time</div><div class="value" id="timeVal">0:00.0</div></div>
+  <div class="stat">
+    <div class="label">Best</div>
+    <div class="value" id="bestVal">—</div>
+    <div class="sub" id="bestSub"></div>
+  </div>
+</div>
+
+<div class="bar">
+  <button id="startBtn">Start Game</button>
+  <span id="boardStatus"></span>
+</div>
+
+<div id="board"></div>
+
+<div id="winPanel">
+  <h2>Board Cleared</h2>
+  <div id="winSummary"></div>
+  <button id="playAgainBtn">Play Again</button>
+  <button id="submitBtn">Submit Score Onchain</button>
+  <div id="status"></div>
+</div>
+
+<footer>
+  contract: <a id="contractLink" href="#" target="_blank" rel="noopener"></a><br>
+  scores are client-reported &middot; run time bounded by the start &rarr; submit gap onchain
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.2/ethers.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@base-org/account@2.5.6/dist/base-account.min.js"></script>
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// v3 deployment, session-based (startGame + submitScore) — v2 single-tx
+// contract deprecated; its three-arg submitScore would reject this frontend.
+const CONTRACT_ADDRESS = "0x67404e40bb2c74aceff1b4338d31ee0b1972156c";
+// ---------------------------------------------------------------------------
+
+const BASE_CHAIN_ID = 8453;
+const BASE_CHAIN_HEX = "0x2105";
+const BASE_PARAMS = {
+  chainId: BASE_CHAIN_HEX,
+  chainName: "Base",
+  nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+  rpcUrls: ["https://mainnet.base.org"],
+  blockExplorerUrls: ["https://basescan.org"],
+};
+const ABI = [
+  "function startGame(uint8 gridSize) external",
+  "function submitScore(uint16 moves, uint32 timeMs) external",
+  "function getSession(address player) external view returns (uint8 gridSize, uint64 startedAt)",
+  "function getBest(address player, uint8 gridSize) external view returns (uint16 moves, uint32 timeMs, uint32 plays, uint64 lastPlayed)",
+];
+
+const GLYPHS = "ABCDEFGHJKLMNPQRSTUV"; // first N pairs drawn from here
+
+const $ = (id) => document.getElementById(id);
+const boardEl = $("board");
+
+let gridSize = 4;
+let tiles = [];          // { el, glyph, matched }
+let firstPick = null;
+let lockBoard = false;
+let moves = 0;
+let matchedPairs = 0;
+let startTime = null;    // ms timestamp of first flip
+let finalTimeMs = 0;
+let timerId = null;
+let finished = false;
+let runReady = false;      // board unlocked for play (after Start)
+let sessionOpen = false;   // an onchain session covers the current board
+let awaitingStart = false; // startGame tx pending
+
+let eip1193 = null;      // raw EIP-1193 provider (injected or Base Account SDK)
+let provider = null;     // ethers.BrowserProvider wrapping eip1193
+let signer = null;
+let account = null;
+
+$("contractLink").textContent = CONTRACT_ADDRESS;
+$("contractLink").href = "https://basescan.org/address/" + CONTRACT_ADDRESS;
+
+// ----- helpers --------------------------------------------------------------
+
+function fmtTime(ms) {
+  const t = Math.max(0, Math.round(ms / 100)); // tenths
+  const m = Math.floor(t / 600);
+  const s = Math.floor((t % 600) / 10);
+  const d = t % 10;
+  return m + ":" + String(s).padStart(2, "0") + "." + d;
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function setStatus(msg, cls) {
+  const el = $("status");
+  el.className = cls || "";
+  el.innerHTML = msg;
+}
+
+function setBoardStatus(msg, cls) {
+  const el = $("boardStatus");
+  el.className = cls || "";
+  el.textContent = msg;
+}
+
+function setControlsEnabled(enabled) {
+  document.querySelectorAll(".size-btn").forEach((b) => { b.disabled = !enabled; });
+  $("newGameBtn").disabled = !enabled;
+  $("playAgainBtn").disabled = !enabled;
+}
+
+function shortAddr(a) { return a.slice(0, 6) + "…" + a.slice(-4); }
+
+function errText(e) {
+  return (e && (e.shortMessage || e.reason || e.message)) || String(e);
+}
+
+function isRejection(e) {
+  return e && (e.code === "ACTION_REJECTED" || e.code === 4001);
+}
+
+// ----- game -----------------------------------------------------------------
+
+function newGame(size) {
+  if (awaitingStart) return;
+  gridSize = size;
+  document.querySelectorAll(".size-btn").forEach((b) =>
+    b.classList.toggle("active", Number(b.dataset.size) === size));
+
+  // keep a 2x2 board compact instead of stretching 4 tiles across the full width
+  boardEl.style.maxWidth = size === 2 ? "248px" : "";
+
+  clearInterval(timerId);
+  timerId = null;
+  firstPick = null;
+  lockBoard = false;
+  moves = 0;
+  matchedPairs = 0;
+  startTime = null;
+  finalTimeMs = 0;
+  finished = false;
+  runReady = false;
+  sessionOpen = false;
+  $("movesVal").textContent = "0";
+  $("timeVal").textContent = "0:00.0";
+  $("winPanel").classList.remove("show");
+  setStatus("");
+
+  const pairs = (size * size) / 2;
+  const deck = shuffle(
+    GLYPHS.slice(0, pairs).split("").flatMap((g) => [g, g])
+  );
+
+  boardEl.style.setProperty("--n", size);
+  boardEl.innerHTML = "";
+  tiles = deck.map((glyph) => {
+    const el = document.createElement("div");
+    el.className = "tile";
+    el.innerHTML =
+      '<div class="face front">&#9670;</div>' +
+      '<div class="face back">' + glyph + "</div>";
+    const tile = { el, glyph, matched: false };
+    el.addEventListener("click", () => onFlip(tile));
+    boardEl.appendChild(el);
+    return tile;
+  });
+
+  boardEl.classList.add("locked");
+  const startBtn = $("startBtn");
+  startBtn.style.display = "";
+  startBtn.disabled = false;
+  startBtn.textContent = "Start Game";
+  setBoardStatus(account
+    ? "Start opens your onchain session."
+    : "connect to play onchain — start plays a free unrecorded run");
+  refreshBest();
+}
+
+function startRun() {
+  if (awaitingStart || runReady || finished) return;
+  if (account) {
+    beginSession();
+  } else {
+    runReady = true;
+    boardEl.classList.remove("locked");
+    $("startBtn").style.display = "none";
+    setBoardStatus("Offchain run — this won't be recorded.");
+  }
+}
+
+async function beginSession() {
+  awaitingStart = true;
+  sessionOpen = false;
+  boardEl.classList.add("locked");
+  setControlsEnabled(false);
+  const startBtn = $("startBtn");
+  startBtn.disabled = true;
+  setBoardStatus("Starting onchain…", "busy");
+  try {
+    await ensureBase();
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+    const tx = await contract.startGame(gridSize);
+    setBoardStatus("Start sent — waiting for confirmation…", "busy");
+    await tx.wait();
+    sessionOpen = true;
+    runReady = true;
+    boardEl.classList.remove("locked");
+    startBtn.style.display = "none";
+    setBoardStatus("Session open — first flip starts the clock.", "ok");
+  } catch (e) {
+    setBoardStatus(
+      isRejection(e) ? "Start cancelled — board stays locked." : "Start failed: " + errText(e),
+      "err");
+    startBtn.disabled = false;
+    startBtn.textContent = "Try Again";
+  } finally {
+    awaitingStart = false;
+    setControlsEnabled(true);
+  }
+}
+
+function onFlip(tile) {
+  if (finished || lockBoard || tile.matched || tile === firstPick) return;
+  if (!runReady) return; // locked until Start (and the session tx, if onchain)
+
+  if (startTime === null) {
+    startTime = performance.now();
+    timerId = setInterval(() => {
+      $("timeVal").textContent = fmtTime(performance.now() - startTime);
+    }, 100);
+    if (sessionOpen) setBoardStatus("");
+  }
+
+  tile.el.classList.add("revealed");
+
+  if (!firstPick) {
+    firstPick = tile;
+    return;
+  }
+
+  // second tile of the pair attempt
+  moves++;
+  $("movesVal").textContent = String(moves);
+  const a = firstPick;
+  firstPick = null;
+
+  if (a.glyph === tile.glyph) {
+    a.matched = tile.matched = true;
+    a.el.classList.add("matched");
+    tile.el.classList.add("matched");
+    matchedPairs++;
+    if (matchedPairs === (gridSize * gridSize) / 2) onWin();
+  } else {
+    lockBoard = true;
+    setTimeout(() => {
+      a.el.classList.remove("revealed");
+      tile.el.classList.remove("revealed");
+      lockBoard = false;
+    }, 700);
+  }
+}
+
+function onWin() {
+  finished = true;
+  clearInterval(timerId);
+  finalTimeMs = Math.round(performance.now() - startTime);
+  $("timeVal").textContent = fmtTime(finalTimeMs);
+
+  $("winSummary").textContent =
+    gridSize + "×" + gridSize + " cleared in " + moves +
+    " moves · " + fmtTime(finalTimeMs);
+
+  const btn = $("submitBtn");
+  const pairs = (gridSize * gridSize) / 2;
+  if (!account || !sessionOpen) {
+    btn.style.display = "none";
+    setStatus("Offchain run — connect and start a new board to record scores.");
+  } else if (finalTimeMs < pairs * 400) {
+    btn.style.display = "none";
+    setStatus("Run is under the onchain floor (" + pairs * 400 + "ms minimum) — play again to record it.", "err");
+  } else {
+    btn.style.display = "";
+    btn.disabled = false;
+    btn.textContent = "Submit Score Onchain";
+    setStatus("");
+  }
+  $("winPanel").classList.add("show");
+  refreshBest();
+}
+
+// ----- best display ----------------------------------------------------------
+
+async function refreshBest() {
+  const bestVal = $("bestVal");
+  const bestSub = $("bestSub");
+
+  if (!account) {
+    bestVal.textContent = "—";
+    bestSub.textContent = "connect to load";
+    return;
+  }
+  try {
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider);
+    const [m, t, plays] = await contract.getBest(account, gridSize);
+    if (plays > 0n) {
+      bestVal.textContent = m + " mv";
+      bestSub.textContent = fmtTime(Number(t)) + " · " + plays + " plays";
+    } else {
+      bestVal.textContent = "—";
+      bestSub.textContent = "no runs yet";
+    }
+  } catch (e) {
+    bestVal.textContent = "—";
+    bestSub.textContent = "best unavailable";
+  }
+}
+
+// ----- wallet ----------------------------------------------------------------
+
+async function ensureBase() {
+  try {
+    await eip1193.request({
+      method: "wallet_switchEthereumChain",
+      params: [{ chainId: BASE_CHAIN_HEX }],
+    });
+  } catch (err) {
+    const code = err && (err.code || (err.data && err.data.originalError && err.data.originalError.code));
+    if (code === 4902) {
+      await eip1193.request({ method: "wallet_addEthereumChain", params: [BASE_PARAMS] });
+    } else if (code === 4200 || code === -32601) {
+      // provider doesn't support switching (Base Account SDK is pinned to its
+      // appChainIds, so it's already on Base) — not an error
+    } else {
+      throw err;
+    }
+  }
+}
+
+async function finishConnect(raw, btnId, otherBtnId) {
+  eip1193 = raw;
+  const accounts = await raw.request({ method: "eth_requestAccounts" });
+  account = ethers.getAddress(accounts[0]);
+  await ensureBase();
+  provider = new ethers.BrowserProvider(raw);
+  signer = await provider.getSigner();
+
+  const btn = $(btnId);
+  btn.textContent = shortAddr(account);
+  btn.classList.add("connected");
+  $(otherBtnId).style.display = "none";
+
+  if (raw.on) {
+    raw.on("accountsChanged", (accs) => {
+      sessionOpen = false; // any open session belonged to the old account
+      if (!accs || accs.length === 0) {
+        account = null; signer = null; provider = null;
+        btn.textContent = btnId === "baseWalletBtn" ? "Base Wallet" : "Browser Wallet";
+        btn.classList.remove("connected");
+        $(otherBtnId).style.display = "";
+        setBoardStatus("Wallet disconnected.");
+      } else {
+        account = ethers.getAddress(accs[0]);
+        provider = new ethers.BrowserProvider(raw);
+        provider.getSigner().then((s) => { signer = s; });
+        btn.textContent = shortAddr(account);
+        setBoardStatus("Account changed — start a new board to play onchain.");
+      }
+      refreshBest();
+    });
+  }
+  refreshBest();
+
+  // a session only covers boards dealt after connecting: untouched board can
+  // be redealt silently, an in-progress run stays offchain
+  if (startTime === null && !finished) {
+    newGame(gridSize);
+  } else {
+    setBoardStatus("Connected — start a new board to play onchain.", "ok");
+  }
+}
+
+async function connectBase() {
+  if (typeof window.createBaseAccountSDK !== "function") {
+    setBoardStatus("Base Account SDK failed to load — check your connection and refresh.", "err");
+    return;
+  }
+  try {
+    const sdk = window.createBaseAccountSDK({
+      appName: "Meridian",
+      appChainIds: [BASE_CHAIN_ID],
+      preference: { attribution: { auto: false } }, // plain calldata, nothing appended
+    });
+    await finishConnect(sdk.getProvider(), "baseWalletBtn", "injectedBtn");
+  } catch (e) {
+    setBoardStatus(
+      isRejection(e) ? "Connection cancelled." : "Base Wallet connection failed: " + errText(e),
+      "err");
+  }
+}
+
+async function connectInjected() {
+  if (!window.ethereum) {
+    setBoardStatus("No browser wallet detected — use Base Wallet instead.", "err");
+    return;
+  }
+  try {
+    await finishConnect(window.ethereum, "injectedBtn", "baseWalletBtn");
+  } catch (e) {
+    setBoardStatus(
+      isRejection(e) ? "Connection cancelled." : "Wallet connection failed: " + errText(e),
+      "err");
+  }
+}
+
+async function submitScore() {
+  if (!finished || !sessionOpen || !account) return;
+
+  const btn = $("submitBtn");
+  btn.disabled = true;
+  try {
+    await ensureBase();
+    setStatus("Confirm the transaction in your wallet…");
+    const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+    const tx = await contract.submitScore(moves, finalTimeMs);
+    setStatus("Submitted — waiting for confirmation…");
+    const receipt = await tx.wait();
+    sessionOpen = false; // contract closes the session on submit
+    setStatus(
+      'Score recorded! <a href="https://basescan.org/tx/' + receipt.hash +
+      '" target="_blank" rel="noopener">View on Basescan</a>', "ok");
+    btn.textContent = "Score Submitted";
+    refreshBest();
+  } catch (e) {
+    if (isRejection(e)) {
+      setStatus("Transaction cancelled.", "err");
+    } else {
+      setStatus("Submit failed: " + errText(e), "err");
+    }
+    btn.disabled = false;
+  }
+}
+
+// ----- wire up ---------------------------------------------------------------
+
+document.querySelectorAll(".size-btn").forEach((b) =>
+  b.addEventListener("click", () => newGame(Number(b.dataset.size))));
+$("newGameBtn").addEventListener("click", () => newGame(gridSize));
+$("playAgainBtn").addEventListener("click", () => newGame(gridSize));
+$("startBtn").addEventListener("click", startRun);
+$("baseWalletBtn").addEventListener("click", connectBase);
+$("injectedBtn").addEventListener("click", connectInjected);
+$("submitBtn").addEventListener("click", submitScore);
+
+newGame(4);
+</script>
+</body>
+</html>
