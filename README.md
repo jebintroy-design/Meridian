@@ -36,7 +36,11 @@ All onchain, tracked separately per player: **2x2** (2 pairs), **4x4** (8 pairs)
 
 ## Hosting
 
-Host `index.html` anywhere static, same as baseshooter. Transactions carry plain calldata, nothing appended.
+Host `index.html` anywhere static, same as baseshooter.
+
+## Builder attribution (ERC-8021)
+
+Both onchain transactions (`startGame` and `submitScore`) carry Meridian's Base builder code as an ERC-8021 data suffix appended to the calldata, so the app earns onchain attribution in its base.dev dashboard. The suffix is the precomputed output of the `ox` library's `Attribution.toDataSuffix({ codes: ["bc_4ugk858d"] })` — a 29-byte tail (`…8021` marker + schema byte + length + the ASCII code) that the contract ignores and off-chain indexers read. It's appended manually via `signer.sendTransaction` so it applies identically through the injected wallet and the Base Account smart wallet; read calls carry no suffix. The Base Account SDK's own auto-attribution is left off to avoid a second, conflicting suffix. To verify, decode a tx's input data on Basescan and confirm it ends with the marker, or use the [builder code checker](https://builder-code-checker.vercel.app/).
 
 ## Smoke test before announcing
 

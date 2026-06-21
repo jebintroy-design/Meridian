@@ -248,6 +248,15 @@ const ABI = [
   "function getBest(address player, uint8 gridSize) external view returns (uint16 moves, uint32 timeMs, uint32 plays, uint64 lastPlayed)",
 ];
 
+// ERC-8021 builder attribution for Meridian's own Base builder code bc_4ugk858d.
+// Precomputed with the ox library exactly as the Base docs prescribe:
+//   Attribution.toDataSuffix({ codes: ["bc_4ugk858d"] })
+// Layout, parsed from the end: 16-byte 0x8021… marker, 0x00 schema id,
+// 0x0b codesLength (=11), then the 11 ASCII bytes of "bc_4ugk858d". Solidity
+// ignores these trailing calldata bytes; off-chain indexers read them for
+// attribution. This is Meridian's own registered builder code.
+const BUILDER_DATA_SUFFIX = "62635f3475676b383538640b0080218021802180218021802180218021";
+
 const GLYPHS = "ABCDEFGHJKLMNPQRSTUV"; // first N pairs drawn from here
 
 const $ = (id) => document.getElementById(id);
@@ -319,6 +328,16 @@ function errText(e) {
 
 function isRejection(e) {
   return e && (e.code === "ACTION_REJECTED" || e.code === 4001);
+}
+
+// Send a state-changing contract call with the builder-code suffix appended to
+// its calldata. Works for both the injected wallet and the Base Account smart
+// wallet because it goes through the standard eth_sendTransaction path. Read
+// calls (getBest/getSession) intentionally carry no suffix — attribution is
+// per transaction.
+async function sendWithAttribution(method, args) {
+  const data = new ethers.Interface(ABI).encodeFunctionData(method, args) + BUILDER_DATA_SUFFIX;
+  return signer.sendTransaction({ to: CONTRACT_ADDRESS, data });
 }
 
 // ----- game -----------------------------------------------------------------
@@ -400,8 +419,7 @@ async function beginSession() {
   setBoardStatus("Starting onchain…", "busy");
   try {
     await ensureBase();
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-    const tx = await contract.startGame(gridSize);
+    const tx = await sendWithAttribution("startGame", [gridSize]);
     setBoardStatus("Start sent — waiting for confirmation…", "busy");
     await tx.wait();
     sessionOpen = true;
@@ -590,7 +608,10 @@ async function connectBase() {
     const sdk = window.createBaseAccountSDK({
       appName: "Meridian",
       appChainIds: [BASE_CHAIN_ID],
-      preference: { attribution: { auto: false } }, // plain calldata, nothing appended
+      // We append our own ERC-8021 builder code to calldata (see
+      // sendWithAttribution), so keep the SDK's origin auto-attribution off to
+      // avoid a second, conflicting suffix.
+      preference: { attribution: { auto: false } },
     });
     await finishConnect(sdk.getProvider(), "baseWalletBtn", "injectedBtn");
   } catch (e) {
@@ -622,8 +643,7 @@ async function submitScore() {
   try {
     await ensureBase();
     setStatus("Confirm the transaction in your wallet…");
-    const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-    const tx = await contract.submitScore(moves, finalTimeMs);
+    const tx = await sendWithAttribution("submitScore", [moves, finalTimeMs]);
     setStatus("Submitted — waiting for confirmation…");
     const receipt = await tx.wait();
     sessionOpen = false; // contract closes the session on submit
